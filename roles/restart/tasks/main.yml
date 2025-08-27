@@ -1,0 +1,49 @@
+- name: Read restart tag
+  ansible.builtin.set_fact:
+    restart_tag: "{{ hostvars[inventory_hostname].tags.Restart | default('') | lower | trim }}"
+
+- name: Skip if restart tag missing
+  ansible.builtin.meta: end_host
+  when: restart_tag | length == 0
+
+- name: Extract weekday and time parts
+  ansible.builtin.set_fact:
+    restart_day: "{{ (restart_tag.split(' at ')[0] | trim) if ' at ' in restart_tag else (restart_tag | trim) }}"
+    time_str:    "{{ (restart_tag.split(' at ')[1] | trim) if ' at ' in restart_tag else '' }}"
+
+- name: Map weekday to number
+  ansible.builtin.set_fact:
+    restart_weekday: "{{ weekday_map[restart_day] }}"
+
+- name: Handle midnight/noon
+  ansible.builtin.set_fact:
+    restart_hour: "{{ 0 if 'midnight' in time_str else 12 }}"
+    restart_minute: 0
+  when: "'midnight' in time_str or 'noon' in time_str"
+
+- name: Parse HH:MM am/pm
+  ansible.builtin.set_fact:
+    _m: "{{ time_str | regex_findall('([0-9]{1,2}):([0-9]{2})\\s*(am|pm)?') }}"
+  when: "'midnight' not in time_str and 'noon' not in time_str"
+
+- name: Compute 24h time
+  ansible.builtin.set_fact:
+    _h: "{{ (_m[0][0] | int) if (_m|length>0) else 0 }}"
+    _min: "{{ (_m[0][1] | int) if (_m|length>0) else 0 }}"
+    _ampm: "{{ (_m[0][2] | default('')) if (_m|length>0) else '' }}"
+  when: "'midnight' not in time_str and 'noon' not in time_str"
+
+- name: Final time facts
+  ansible.builtin.set_fact:
+    restart_hour: "{{ _h if (_ampm in ['', 'am']) else ((_h % 12) + 12) }}"
+    restart_minute: "{{ _min }}"
+  when: "'midnight' not in time_str and 'noon' not in time_str"
+
+- name: Create weekly reboot cron
+  ansible.builtin.cron:
+    name: "weekly reboot from tag"
+    weekday: "{{ restart_weekday }}"
+    hour: "{{ restart_hour }}"
+    minute: "{{ restart_minute }}"
+    user: root
+    job: "/usr/sbin/reboot"

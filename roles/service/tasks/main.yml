@@ -1,0 +1,32 @@
+- name: Read service tags
+  ansible.builtin.set_fact:
+    svc_name: "{{ hostvars[inventory_hostname].tags.Service | lower }}"
+    svc_version: "{{ (hostvars[inventory_hostname].tags.Version | default('') | trim) | default(default_version) }}"
+  when: hostvars[inventory_hostname].tags.Service is defined
+
+- name: Normalize service name
+  ansible.builtin.set_fact:
+    real_service_name: "{{ 'mariadb' if 'mariadb' in svc_name else svc_name }}"
+  when: svc_name is defined
+
+- name: Install latest when version == latest
+  ansible.builtin.yum:
+    name: "{{ svc_name }}"
+    state: latest
+    update_cache: yes
+  when: svc_name is defined and svc_version == 'latest'
+
+- name: Install specific version (downgrade if needed)
+  ansible.builtin.yum:
+    name: "{{ svc_name }}-{{ svc_version }}*"
+    state: present
+    allow_downgrade: yes
+    update_cache: yes
+  when: svc_name is defined and svc_version != 'latest'
+
+- name: Enable and start service
+  ansible.builtin.service:
+    name: "{{ real_service_name }}"
+    enabled: true
+    state: started
+  when: real_service_name is defined

@@ -1,0 +1,3 @@
+- name: Set hostname from tag Name
+  ansible.builtin.hostname:
+    name: "{{ hostvars[inventory_hostname].tags.Name | default(inventory_hostname) }}"
