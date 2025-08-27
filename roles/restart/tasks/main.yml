@@ -1,8 +1,9 @@
+---
 - name: Read restart tag
   ansible.builtin.set_fact:
     restart_tag: "{{ hostvars[inventory_hostname].tags.Restart | default('') | lower | trim }}"
 
-- name: Skip if restart tag missing
+- name: Skip host if restart tag missing
   ansible.builtin.meta: end_host
   when: restart_tag | length == 0
 
@@ -14,6 +15,17 @@
 - name: Map weekday to number
   ansible.builtin.set_fact:
     restart_weekday: "{{ weekday_map[restart_day] }}"
+
+- name: Ensure cron is installed
+  ansible.builtin.package:
+    name: cronie
+    state: present
+
+- name: Ensure cron daemon is enabled and running
+  ansible.builtin.service:
+    name: crond
+    state: started
+    enabled: true
 
 - name: Handle midnight/noon
   ansible.builtin.set_fact:
@@ -28,17 +40,17 @@
 
 - name: Validate time parse
   ansible.builtin.fail:
-    msg: "Restart tag time is invalid: '{{ time_str }}' (expected 'HH:MM am/pm' or 'midnight'/'noon')"
+    msg: "Invalid Restart time '{{ time_str }}'. Use 'HH:MM am/pm', 'midnight', or 'noon'."
   when: "'midnight' not in time_str and 'noon' not in time_str and (_m|length == 0)"
 
-- name: Compute 24h time
+- name: Compute 24h base values
   ansible.builtin.set_fact:
     _h: "{{ _m[0][0] | int }}"
     _min: "{{ _m[0][1] | int }}"
     _ampm: "{{ _m[0][2] | default('') }}"
   when: "'midnight' not in time_str and 'noon' not in time_str"
 
-- name: Final time facts
+- name: Final time facts (24h)
   ansible.builtin.set_fact:
     restart_hour: >-
       {% if _ampm == 'pm' %}{{ (_h % 12) + 12 }}
@@ -55,3 +67,4 @@
     minute: "{{ restart_minute }}"
     user: root
     job: "/usr/sbin/reboot"
+
