@@ -26,16 +26,24 @@
     _m: "{{ time_str | regex_findall('([0-9]{1,2}):([0-9]{2})\\s*(am|pm)?') }}"
   when: "'midnight' not in time_str and 'noon' not in time_str"
 
+- name: Validate time parse
+  ansible.builtin.fail:
+    msg: "Restart tag time is invalid: '{{ time_str }}' (expected 'HH:MM am/pm' or 'midnight'/'noon')"
+  when: "'midnight' not in time_str and 'noon' not in time_str and (_m|length == 0)"
+
 - name: Compute 24h time
   ansible.builtin.set_fact:
-    _h: "{{ (_m[0][0] | int) if (_m|length>0) else 0 }}"
-    _min: "{{ (_m[0][1] | int) if (_m|length>0) else 0 }}"
-    _ampm: "{{ (_m[0][2] | default('')) if (_m|length>0) else '' }}"
+    _h: "{{ _m[0][0] | int }}"
+    _min: "{{ _m[0][1] | int }}"
+    _ampm: "{{ _m[0][2] | default('') }}"
   when: "'midnight' not in time_str and 'noon' not in time_str"
 
 - name: Final time facts
   ansible.builtin.set_fact:
-    restart_hour: "{{ _h if (_ampm in ['', 'am']) else ((_h % 12) + 12) }}"
+    restart_hour: >-
+      {% if _ampm == 'pm' %}{{ (_h % 12) + 12 }}
+      {% elif _ampm == 'am' and _h == 12 %}0
+      {% else %}{{ _h }}{% endif %}
     restart_minute: "{{ _min }}"
   when: "'midnight' not in time_str and 'noon' not in time_str"
 
